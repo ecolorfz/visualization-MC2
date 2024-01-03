@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Location Popularity Vertical Lines</title>
+    <!-- Include D3.js library -->
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <!-- <style>
+        .vertical-line {
+            stroke-width: 1px;
+        }
+        .hour-line {
+            stroke-dasharray: 3, 3;
+            stroke: #ccc;
+        }
+        .legend {
+            text-anchor: middle;
+        }
+        .time-label {
+            font-size: 12px;
+            text-anchor: middle;
+        }
+    </style> -->
+    <style>
+        /* Add a gradient background */
+        body {
+            background: linear-gradient(to bottom, #f0f0f0, #e0e0e0);
+            font-family: 'Arial', sans-serif;
+        }
+    
+        .vertical-line {
+            stroke-width: 1px;
+            transition: opacity 0.3s ease-in-out; /* Add transition for opacity */
+        }
+    
+        .hour-line {
+            stroke-dasharray: 3, 3;
+            stroke: #ccc;
+        }
+    
+        .legend {
+            text-anchor: middle;
+        }
+    
+        .time-label {
+            font-size: 12px;
+            text-anchor: middle;
+        }
+    
+        .tooltip {
+            position: absolute;
+            background-color: white;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out; /* Add transition for opacity */
+        }
+    </style>
+</head>
+<body>
+
+<script>
+    // Load loyalty_data.csv and cc_data.csv
+    Promise.all([
+        d3.csv("loyalty_data.csv"),
+        d3.csv("cc_data.csv")
+    ]).then(function (data) {
+        // Combine the two datasets
+        const allTransactions = data[0].concat(data[1]);
+
+        // Group transactions by location and time
+        const locationTimeCounts = d3.nest()
+            .key(d => d.location)
+            .key(d => new Date(d.timestamp).getUTCHours() * 60 + new Date(d.timestamp).getUTCMinutes())
+            .rollup(v => ({
+                count: v.length,
+                category: v[0].category  // Assume the category is the same for all transactions at the same location
+            }))
+            .map(allTransactions);
+
+        // Extract unique locations and times
+        const locations = ["Brew've Been Served", "Hallowed Grounds", "Coffee Cameleon", "Brewed Awakenings", "Jack's Magical Beans", "Bean There Done That", "Coffee Shack", "Gelatogalore", "Guy's Gyros", "Chostus Hotel", "Hippokampos", "Ouzeri Elian", "Katerina's Café", "Abila Zacharo", "Kalami Kafenion", "Octavio's Office Supplies", "General Grocer", "Shoppers' Delight", "Albert's Fine Clothing", "Frydos Autosupply n' More", "Roberts and Sons", "Desafio Golf Course", "Ahaggo Museum", "Abila Airport", "Kronos Pipe and Irrigation", "Carlyle Chemical Inc.", "Nationwide Refinery", "Stewart and Sons Fabrication", "Maximum Iron and Steel", "Abila Scrapyard", "Kronos Mart", "Daily Dealz", "Frank's Fuel", "U-Pump"];
+
+        // Define categories and corresponding colors
+        const categories = {
+            "Breakfast": "#800000",
+            "Lunch&Dinner": "#F5C700",
+            "Store": "#40A0A0",
+            "Amusement": "#FF8000",
+            "Industry": "#FF0000",
+            "Unspecified": "#008080"
+        };
+
+        // Function to determine color based on location category
+        function getColor(location) {
+            const category = locationCategoryMap[location];
+            return categories[category] || "gray"; // Default to gray if category not found
+        }
+
+        // Map each location to its category
+        const locationCategoryMap = {
+            "Brew've Been Served": "Breakfast",
+            "Hallowed Grounds": "Breakfast",
+            "Coffee Cameleon": "Breakfast",
+            "Brewed Awakenings": "Breakfast",
+            "Jack's Magical Beans": "Breakfast",
+            "Bean There Done That": "Breakfast",
+            "Coffee Shack": "Breakfast",
+            "Chostus Hotel": "Lunch&Dinner",
+            "Hippokampos": "Lunch&Dinner",
+            "Ouzeri Elian": "Lunch&Dinner",
+            "Katerina's Café": "Lunch&Dinner",
+            "Gelatogalore": "Lunch&Dinner",
+            "Abila Zacharo": "Lunch&Dinner",
+            "Kalami Kafenion": "Lunch&Dinner",
+            "Guy's Gyros": "Lunch&Dinner",
+            "Octavio's Office Supplies": "Store",
+            "General Grocer": "Store",
+            "Shoppers' Delight": "Store",
+            "Albert's Fine Clothing": "Store",
+            "Frydos Autosupply n' More": "Store",
+            "Roberts and Sons": "Store",
+            "Desafio Golf Course": "Amusement",
+            "Ahaggo Museum": "Amusement",
+            "Abila Airport": "Industry",
+            "Kronos Pipe and Irrigation": "Industry",
+            "Carlyle Chemical Inc.": "Industry",
+            "Nationwide Refinery": "Industry",
+            "Stewart and Sons Fabrication": "Industry",
+            "Maximum Iron and Steel": "Industry",
+            "Abila Scrapyard": "Industry",
+            "Kronos Mart": "Unspecified",
+            "Daily Dealz": "Unspecified",
+            "Frank's Fuel": "Unspecified",
+            "U-Pump": "Unspecified",
+        };
+
+        // Extract unique times
+        const times = [...new Set(allTransactions.map(d => new Date(d.timestamp).getUTCHours() * 60 + new Date(d.timestamp).getUTCMinutes()))];
+
+        // Set up chart dimensions
+        const margin = { top: 50, right: 30, bottom: 60, left: 200 };  // Increased left margin
+        const width = 1200 - margin.left - margin.right;
+        const height = 600 - margin.top - margin.bottom;
+
+        // Create SVG element
+        const svg = d3.select("body").append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+        // Set up scales
+        const xScale = d3.scaleLinear()
+            .domain([d3.min(times), d3.max(times)])
+            .range([0, width]);
+
+        const yScale = d3.scaleBand()
+            .domain(locations)
+            .range([0, height])
+            .padding(0.1);
+
+        // Draw vertical lines for each transaction record
+        // svg.selectAll(".vertical-line")
+        //     .data(allTransactions)
+        //     .enter().append("line")
+        //     .attr("class", "vertical-line")
+        //     .attr("x1", d => xScale(new Date(d.timestamp).getUTCHours() * 60 + new Date(d.timestamp).getUTCMinutes()))
+        //     .attr("y1", d => yScale(d.location))
+        //     .attr("x2", d => xScale(new Date(d.timestamp).getUTCHours() * 60 + new Date(d.timestamp).getUTCMinutes()))
+        //     .attr("y2", d => yScale(d.location) + yScale.bandwidth())
+        //     .attr("stroke", d => getColor(d.location))  // Use category color
+        //     .attr("stroke-width", 2)
+        //     .on("mouseover", handleMouseOver)
+        //     .on("mouseout", handleMouseOut);
+        svg.selectAll(".vertical-line")
+        .data(allTransactions)
+        .enter().append("line")
+        .attr("class", "vertical-line")
+        .attr("x1", d => xScale(new Date(d.timestamp).getUTCHours() * 60 + new Date(d.timestamp).getUTCMinutes()))
+        .attr("y1", d => yScale(d.location))
+        .attr("x2", d => xScale(new Date(d.timestamp).getUTCHours() * 60 + new Date(d.timestamp).getUTCMinutes()))
+        .attr("y2", d => yScale(d.location) + yScale.bandwidth())
+        .attr("stroke", d => getColor(d.location))  // Use category color
+        .attr("stroke-width", 2)
+        .attr("opacity", 0.7)  // Set initial opacity
+        .on("mouseover", handleMouseOver)
+        .on("mouseout", handleMouseOut);
+
+        // Add dotted lines for each hour
+        svg.selectAll(".hour-line")
+            .data(times.filter(time => time % 60 === 0))  // Filter to get only the starting time of each hour
+            .enter().append("line")
+            .attr("class", "hour-line")
+            .attr("x1", time => xScale(time))
+            .attr("y1", 0)
+            .attr("x2", time => xScale(time))
+            .attr("y2", height);
+
+        // Add time labels for each dotted line
+        svg.selectAll(".time-label")
+            .data(times.filter(time => time % 60 === 0))  // Filter to get only the starting time of each hour
+            .enter().append("text")
+            .attr("class", "time-label")
+            .attr("x", time => xScale(time))
+            .attr("y", height + 20)  // Adjusted position
+            .text(time => d3.timeFormat("%H:%M")(new Date(2000, 0, 1, Math.floor(time / 60)+8, time % 60)));
+
+        // Add X and Y axis
+        svg.append("g")
+            .call(d3.axisBottom(xScale)
+                .tickFormat(d3.timeFormat("%H:%M"))  // Format ticks as hours and minutes
+                .ticks(d3.timeMinute.every(15))  // Show ticks every 15 minutes
+            )
+            .attr("transform", "translate(0," + height + ")");
+
+        svg.append("g")
+            .call(d3.axisLeft(yScale));
+
+        // Add legend at the bottom
+        const legend = svg.selectAll(".legend")
+            .data(Object.entries(categories))
+            .enter().append("g")
+            .attr("class", "legend")
+            .attr("transform", (d, i) => "translate(" + (i * 120) + "," + (height + 40) + ")"); // Adjusted position
+
+        legend.append("rect")
+            .attr("x", 10)
+            .attr("width", 18)
+            .attr("height", 18)
+            .attr("fill", d => d[1]);
+
+        legend.append("text")
+            .attr("x", 35)
+            .attr("y", 9)
+            .attr("dy", ".35em")
+            .style("text-anchor", "start")
+            .text(d => d[0]);
+
+        // Add chart title
+        svg.append("text")
+            .attr("x", width / 2)
+            .attr("y", 0 - margin.top / 2)
+            .attr("text-anchor", "middle")
+            .style("font-size", "16px")
+            .text("Location Popularity Vertical Lines");
+
+             // Tooltip
+        const tooltip = d3.select("body").append("div")
+            .attr("class", "tooltip")
+            .style("opacity", 0);
+
+        // Event handlers
+        // function handleMouseOver(d) {
+        //     const timestampFormat = d3.timeFormat("%Y-%m-%d %H:%M:%S");
+        //     const htmlContent = `
+        //         <strong>Timestamp:</strong> ${timestampFormat(new Date(d.timestamp))}<br>
+        //         <strong>Price:</strong> ${d.price}<br>
+                
+        //     `;
+        //     tooltip.html(htmlContent)
+        //         .style("left", (d3.event.pageX + 10) + "px")
+        //         .style("top", (d3.event.pageY - 10) + "px")
+        //         .transition()
+        //         .duration(200)
+        //         .style("opacity", 0.9);
+        // }
+
+        // function handleMouseOut() {
+        //     tooltip.transition()
+        //         .duration(200)
+        //         .style("opacity", 0);
+        //}
+        function handleMouseOver(d) {
+        const timestampFormat = d3.timeFormat("%Y-%m-%d %H:%M:%S");
+        const htmlContent = `
+            <strong>Timestamp:</strong> ${timestampFormat(new Date(d.timestamp))}<br>
+            <strong>Price:</strong> ${d.price}<br>
+        `;
+        tooltip.html(htmlContent)
+            .style("left", (d3.event.pageX + 10) + "px")
+            .style("top", (d3.event.pageY - 10) + "px")
+            .transition()
+            .duration(200)
+            .style("opacity", 0.9);
+        
+        // Increase opacity on mouseover
+        d3.select(this).attr("opacity", 1);
+    }
+
+    function handleMouseOut() {
+        tooltip.transition()
+            .duration(200)
+            .style("opacity", 0);
+        
+        // Reset opacity on mouseout
+        d3.select(this).attr("opacity", 0.7);
+    }
+    });
+</script>
+
+</body>
+</html>

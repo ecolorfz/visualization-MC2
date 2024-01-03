@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transaction Bar Chart</title>
+    <!-- Include D3.js library -->
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <style>
+        .tooltip {
+            position: absolute;
+            background: white;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            pointer-events: none;
+            opacity: 0;
+        }
+    </style>
+</head>
+<body>
+
+<script>
+    // Load loyalty_data.csv
+    d3.csv("loyalty_data.csv").then(function (loyaltyData) {
+        // Group loyalty transactions by location
+        const loyaltyLocationCounts = d3.nest()
+            .key(d => d.location)
+            .rollup(v => {
+                return {
+                    total: v.length,
+                    loyaltyCardCount: v.length
+                    //loyaltyCardCount: v.filter(item => item.type === "loyalty").length,
+                    //creditCardCount: v.filter(item => item.type === "credit").length
+                };
+            })
+            .entries(loyaltyData);
+
+        // Sort locations by transaction count in descending order
+        loyaltyLocationCounts.sort((a, b) => b.value.total - a.value.total);
+
+        // Load cc_data.csv
+        d3.csv("cc_data.csv").then(function (ccData) {
+            // Group credit card transactions by location
+            const ccLocationCounts = d3.nest()
+                .key(d => d.location)
+                .rollup(v => {
+                    return {
+                        total: v.length,
+                        creditCardCount: v.length
+                    };
+                })
+                .entries(ccData);
+
+            // Sort locations by transaction count in descending order
+            ccLocationCounts.sort((a, b) => b.value.total - a.value.total);
+
+            // Combine the two datasets
+            const locationCounts = loyaltyLocationCounts.map(loyaltyItem => {
+                const ccItem = ccLocationCounts.find(ccItem => ccItem.key === loyaltyItem.key);
+                return {
+                    key: loyaltyItem.key,
+                    value: {
+                        total: loyaltyItem.value.total + (ccItem ? ccItem.value.total : 0),
+                        loyaltyCardCount: loyaltyItem.value.loyaltyCardCount,
+                        creditCardCount: ccItem.value.creditCardCount
+                    }
+                };
+            });
+
+            // Set up chart dimensions
+            const margin = { top: 50, right: 30, bottom: 60, left: 160 }; // Increased left margin
+            const width = 1200 - margin.left - margin.right; // Increased width
+            const height = 600 - margin.top - margin.bottom; // Increased height
+
+            // Create SVG element without zoom capability
+            const svg = d3.select("body").append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+            // Set up X and Y scales
+            const x = d3.scaleLinear().range([0, width]);
+            const y = d3.scaleBand().range([0, height]).padding(0.1); // Invert Y-axis scale
+
+            // Update domain of scales based on data
+            x.domain([0, d3.max(locationCounts, d => d.value.total)]);
+            y.domain(locationCounts.map(d => d.key));
+
+            // Add X and Y axis
+            svg.append("g")
+                .call(d3.axisTop(x)); // Move X-axis to the top
+
+            svg.append("g")
+                .call(d3.axisLeft(y).ticks(10))
+                .selectAll("text")
+                .style("text-anchor", "end") // Align text to the end
+                .attr("dx", "-0.5em") // Adjust horizontal position to the left
+                .attr("dy", "-0.3em"); // Adjust vertical position
+
+            // Create bars with lower saturation and transparency
+            svg.selectAll(".bar")
+                .data(locationCounts)
+                .enter().append("rect")
+                .attr("class", "bar")
+                .attr("width", d => x(d.value.total))
+                .attr("height", y.bandwidth())
+                .attr("y", d => y(d.key))
+                .attr("fill", "rgba(70, 130, 180, 0.7)") // Adjust color values, lower saturation, and transparency
+                .on("mouseover", handleMouseOver)
+                .on("mouseout", handleMouseOut);
+
+            // Add total count at the tail of each bar
+            svg.selectAll(".label")
+                .data(locationCounts)
+                .enter().append("text")
+                .attr("class", "label")
+                .attr("x", d => x(d.value.total))
+                .attr("y", d => y(d.key) + y.bandwidth() / 2)
+                .attr("dy", "0.35em")
+                .attr("dx", 5) // Adjust horizontal position for better spacing
+                .text(d => d.value.total);
+
+            // Add chart title
+            svg.append("text")
+                .attr("x", width / 2)
+                .attr("y", 0 - margin.top / 2)
+                .attr("text-anchor", "middle")
+                .style("font-size", "16px")
+                .text("Transaction Counts by location");
+
+            // Tooltip
+            const tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
+
+            function handleMouseOver(d) {
+                d3.select(this).attr("fill", "rgba(70, 130, 180, 1)"); // Darker color on mouseover
+
+                tooltip.transition()
+                    .duration(200)
+                    .style("opacity", 1);
+
+                const content = `<strong>${d.key}</strong><br>
+                                  Total Transactions: ${d.value.total}<br>
+                                  Loyalty Card Count: ${d.value.loyaltyCardCount}<br>
+                                  Credit Card Count: ${d.value.creditCardCount}`;
+
+                tooltip.html(content)
+                    .style("left", (d3.event.pageX + 10) + "px")
+                    .style("top", (d3.event.pageY - 10) + "px");
+            }
+
+            function handleMouseOut() {
+                d3.select(this).attr("fill", "rgba(70, 130, 180, 0.7)"); // Restore original color on mouseout
+
+                tooltip.transition()
+                    .duration(200)
+                    .style("opacity", 0);
+            }
+        });
+    });
+</script>
+
+</body>
+</html>

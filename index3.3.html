@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Correlation Ratio Heatmap</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f3f3f3;
+    }
+
+    #heatmap {
+      margin: 20px;
+    }
+
+    .cell {
+      stroke: none; /* Remove cell border */
+      transition: fill 0.3s ease-in-out;
+    }
+
+    .row-label, .col-label {
+      font-size: 12px;
+      fill: #555;
+      user-select: none;
+    }
+
+    .tooltip {
+      position: absolute;
+      display: none;
+      background-color: rgba(255, 255, 255, 0.9);
+      border: 1px solid #ddd;
+      padding: 10px;
+      pointer-events: none;
+      font-size: 14px;
+      border-radius: 5px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+  </style>
+</head>
+<body>
+  <div id="heatmap"></div>
+
+  <div class="tooltip" id="tooltip"></div>
+
+  <script src="https://d3js.org/d3.v5.min.js"></script>
+  <script>
+    // Assuming you have loaded D3.js before this script
+
+    // Load the loyalty and credit card data
+    Promise.all([
+      d3.csv('loyalty_data.csv'),
+      d3.csv('cc_data.csv')
+    ]).then(function([loyaltyData, creditData]) {
+      // Specify the dates to consider
+      const datesToConsider = [
+        '01/06/2014', '01/07/2014', '01/08/2014', '01/09/2014', '01/10/2014', '01/11/2014',
+        '01/12/2014', '01/13/2014', '01/14/2014', '01/15/2014', '01/16/2014', '01/17/2014', '01/18/2014', '01/19/2014'
+      ];
+
+      // Process and create the correlation ratio matrix
+      const correlationRatioMatrix = createCorrelationRatioMatrix(loyaltyData, creditData, datesToConsider);
+
+      // Create the heatmap using D3.js
+      createHeatmap(correlationRatioMatrix);
+    });
+
+    function createCorrelationRatioMatrix(loyaltyData, creditData, datesToConsider) {
+      // Create an empty matrix
+      const correlationRatioMatrix = {};
+
+      // Initialize a 2D array with all values set to 0
+      const arrRelation = {};
+      loyaltyData.forEach(loyaltyTransaction => {
+        const loyaltyCard = loyaltyTransaction['loyaltynum'];
+        arrRelation[loyaltyCard] = arrRelation[loyaltyCard] || {};
+        creditData.forEach(creditTransaction => {
+          const creditCard = creditTransaction['last4ccnum'];
+          arrRelation[loyaltyCard][creditCard] = 0;
+        });
+      });
+
+      // Loop through loyalty transactions
+      loyaltyData.forEach(loyaltyTransaction => {
+        const loyaltyCard = loyaltyTransaction['loyaltynum'];
+
+        // Loop through credit transactions
+        creditData.forEach(creditTransaction => {
+          const creditCard = creditTransaction['last4ccnum'];
+          const transactionDate = loyaltyTransaction['timestamp'];
+
+          // Check if the transaction is on the specified date, at the same place, and prices are close
+          if (
+            datesToConsider.includes(transactionDate) &&
+            loyaltyTransaction['location'] === creditTransaction['location'] &&
+            Math.abs(parseFloat(loyaltyTransaction['price']) - parseFloat(creditTransaction['price'])) <= 1
+          ) {
+            // Increment the value in the 2D array
+            arrRelation[loyaltyCard][creditCard]++;
+          }
+        });
+      });
+
+      return arrRelation;
+    }
+
+    function createHeatmap(correlationRatioMatrix) {
+      // Define heatmap dimensions
+      const cellSize = 20;
+      const cellHeight = 15;
+      const margin = { top: 50, right: 50, bottom: 50, left: 50 };
+      const width = Object.keys(correlationRatioMatrix).length * cellSize;
+      const height = Object.keys(correlationRatioMatrix[Object.keys(correlationRatioMatrix)[0]]).length * cellHeight;
+
+      // Create the SVG container
+      const svg = d3.select('#heatmap')
+        .append('svg')
+        .attr('width', width + margin.left + margin.right)
+        .attr('height', height + margin.top + margin.bottom)
+        .append('g')
+        .attr('transform', `translate(${margin.left},${margin.top})`);
+
+      // Define color scale
+      const colorScale = d3.scaleLinear()
+        .domain([0, d3.max(Object.values(correlationRatioMatrix).map(d => d3.max(Object.values(d))))])
+        .range(['#e0ecf4', '#3182bd']);
+
+      // Create heatmap cells
+      const cells = svg.selectAll('.cell')
+        .data(Object.entries(correlationRatioMatrix))
+        .enter()
+        .append('g')
+        .attr('transform', (d, i) => `translate(0,${i * cellHeight})`)
+        .selectAll('.cell')
+        .data(d => Object.entries(d[1]).map(entry => ({ row: d[0], col: entry[0], value: entry[1] })))
+        .enter()
+        .append('rect')
+        .attr('class', 'cell')
+        .attr('x', d => Object.keys(correlationRatioMatrix[d.row]).indexOf(d.col) * cellSize)
+        .attr('y', 0)
+        .attr('width', cellSize)
+        .attr('height', cellHeight)
+        .style('fill', d => colorScale(d.value))
+        .on('mouseover', handleMouseOver)
+        .on('mouseout', handleMouseOut);
+
+      // Add labels
+      const rowLabels = svg.selectAll('.row-label')
+        .data(Object.keys(correlationRatioMatrix))
+        .enter()
+        .append('text')
+        .attr('class', 'row-label')
+        .attr('x', -10)
+        .attr('y', (d, i) => i * cellHeight + cellHeight / 2)
+        .attr('dy', '0.35em')
+        .attr('text-anchor', 'end')
+        .text(d => d);
+
+      // Create a group for x-labels
+      const xLabelsGroup = svg.append('g')
+        .attr('transform', `translate(0,-10)`);
+
+      // Add x-labels
+      const colLabels = xLabelsGroup.selectAll('.col-label')
+        .data(Object.keys(correlationRatioMatrix[Object.keys(correlationRatioMatrix)[0]]))
+        .enter()
+        .append('text')
+        .attr('class', 'col-label')
+        .attr('x', (d, i) => i * cellSize + cellSize / 2)
+        .attr('y', 0)
+        .attr('dy', '0.35em')
+        .attr('text-anchor', 'middle')
+        .attr('transform', (d, i) => `rotate(-45 ${i * cellSize + cellSize / 2} 0)`)
+        .text(d => d);
+
+      // Tooltip
+      const tooltip = d3.select('#tooltip');
+
+      function handleMouseOver(d) {
+        // Show tooltip with relevant information
+        const rowName = d.row;
+        const colName = d.col;
+        const correlationValue = correlationRatioMatrix[rowName][colName];
+
+        tooltip.html(`loyalty card: ${rowName}<br>credit card: ${colName}<br>相关值: ${correlationValue}`)
+          .style('left', (d3.event.pageX + 10) + 'px')
+          .style('top', (d3.event.pageY - 10) + 'px')
+          .style('display', 'block');
+      }
+
+      function handleMouseOut() {
+        // Hide tooltip on mouse out
+        tooltip.style('display', 'none');
+      }
+    }
+  </script>
+</body>
+</html>
